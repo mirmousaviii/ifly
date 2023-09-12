@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nearest Aircraft Finder</title>
+</head>
+<body>
+
+<h2>Nearest Aircraft Data</h2>
+<div id="aircraftData"></div>
+<button onclick="findNearestAircraft()">Find Nearest Aircraft</button>
+
+<script>
+    function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+        var R = 6371; // Radius of the earth in km
+        var dLat = deg2rad(lat2 - lat1);
+        var dLon = deg2rad(lon2 - lon1);
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        var distance = R * c; // Distance in km
+        return distance;
+    }
+
+    function deg2rad(deg) {
+        return deg * (Math.PI / 180);
+    }
+
+    function displayAircraftDetails(aircraft) {
+        let output = `
+            ICAO24: ${aircraft[0]}<br>
+            Callsign: ${aircraft[1]}<br>
+            Origin Country: ${aircraft[2]}<br>
+            Time Position: ${aircraft[3]}<br>
+            Last Update: ${aircraft[4]}<br>
+            Longitude: ${aircraft[5]}<br>
+            Latitude: ${aircraft[6]}<br>
+            Altitude: ${aircraft[7]}<br>
+            On Ground Status: ${aircraft[8]}<br>
+            Velocity: ${aircraft[9]}<br>
+            True Track: ${aircraft[10]}<br>
+            Vertical Rate: ${aircraft[11]}<br>
+            Sensors: ${aircraft[12]}<br><br>
+            Geometric Altitude: ${aircraft[13]}<br>
+            Squawk: ${aircraft[14]}<br>
+            SPI: ${aircraft[15]}<br>
+            Position Source: ${aircraft[16]}
+        `;
+
+        document.getElementById('aircraftData').innerHTML += output;
+    }
+
+    function getAircraftBrand(model) {
+        const brands = [
+            {
+                name: "Boeing",
+                patterns: ["Boeing", "B-"]
+            },
+            {
+                name: "Airbus",
+                patterns: ["Airbus", "A3"]
+            },
+            {
+                name: "Bombardier",
+                patterns: ["Bombardier", "CRJ", "Q-"]
+            },
+            {
+                name: "Embraer",
+                patterns: ["Embraer", "E-"]
+            },
+            {
+                name: "Cessna",
+                patterns: ["Cessna", "C-"]
+            },
+            {
+                name: "Piper",
+                patterns: ["Piper"]
+            },
+            {
+                name: "Beechcraft",
+                patterns: ["Beechcraft", "King Air"]
+            },
+            {
+                name: "McDonnell Douglas",
+                patterns: ["MD-", "DC-"]
+            },
+            {
+                name: "Lockheed",
+                patterns: ["Lockheed", "L-"]
+            }
+            // ... you can continue to add more brands and their associated model patterns
+        ];
+
+        for (let brand of brands) {
+            for (let pattern of brand.patterns) {
+                if (model.includes(pattern)) {
+                    return brand.name;
+                }
+            }
+        }
+
+        return "Unknown";
+    }
+
+
+    function displayAircraftMetadata(metadata) {
+        let brand = getAircraftBrand(metadata.model);
+        let output = `
+        <br><br><strong>Aircraft Metadata:</strong><br>
+        Brand: ${brand}<br>
+        Model: ${metadata.model}<br>
+        Registration: ${metadata.registration}<br>
+        Serial Number: ${metadata.serialNumber}<br>
+        Operator: ${metadata.operator}<br>
+        Age: ${new Date().getFullYear() - parseInt(metadata.built)} years
+        <br/>
+    `;
+
+        document.getElementById('aircraftData').innerHTML += output;
+    }
+    function displayFlightDetails(flight) {
+        let output = `
+            <br><strong>Flight Details:</strong><br>
+            Departure Airport: ${flight.estDepartureAirport}<br>
+            Arrival Airport: ${flight.estArrivalAirport}<br>
+            Departure Time: ${new Date(flight.firstSeen * 1000).toLocaleString()}<br>
+            Arrival Time: ${new Date(flight.lastSeen * 1000).toLocaleString()}
+        <br/>
+
+        `;
+
+        document.getElementById('aircraftData').innerHTML += output;
+    }
+
+    async function findNearestAircraft() {
+        navigator.geolocation.getCurrentPosition(async position => {
+            let lat = position.coords.latitude;
+            let lon = position.coords.longitude;
+
+            let response = await fetch(`https://opensky-network.org/api/states/all?lamin=${lat - 1}&lomin=${lon - 1}&lamax=${lat + 1}&lomax=${lon + 1}`);
+            let data = await response.json();
+
+            let nearestAircraft = null;
+            let nearestDistance = Infinity;
+
+            for (let aircraft of data.states) {
+                let aircraftLat = aircraft[6];
+                let aircraftLon = aircraft[5];
+
+                let distance = getDistanceFromLatLonInKm(lat, lon, aircraftLat, aircraftLon);
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestAircraft = aircraft;
+                }
+            }
+
+            document.getElementById('aircraftData').innerHTML = "Distance (in km): " + nearestDistance + "<br>";
+            displayAircraftDetails(nearestAircraft);
+
+            let icao24 = nearestAircraft[0];
+
+            let metadataResponse = await fetch(`https://opensky-network.org/api/metadata/aircraft/icao/${icao24}`);
+            let metadata = await metadataResponse.json();
+            displayAircraftMetadata(metadata);
+
+            let flightsResponse = await fetch(`https://opensky-network.org/api/flights/aircraft?icao24=${icao24}&begin=0&end=${Math.floor(Date.now() / 1000)}`);
+            let flights = await flightsResponse.json();
+
+            if (flights.length > 0) {
+                let latestFlight = flights[flights.length - 1];
+                displayFlightDetails(latestFlight);
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
